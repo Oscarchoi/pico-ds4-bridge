@@ -29,6 +29,7 @@
 #define DS4_RESET_AUTH 0xF3             // Unknown (PS4 Report 0xF3)
 
 bool is_ds4_initialized = false;
+bool is_usb_mounted = false;
 
 // Device Descriptor
 tusb_desc_device_t const desc_device = {
@@ -335,7 +336,7 @@ static const uint8_t ds4_configuration_descriptor[] = {
     GAMEPAD_ENDPOINT | 0x80,  // bEndpointAddress
     0x03,                     // bmAttributes (0x03=intr)
     GAMEPAD_SIZE, 0,          // wMaxPacketSize
-    1,                        // bInterval (1 ms)
+    4,                        // bInterval (1 ms)
     0x07, 0x05, 0x03, 0x03, 0x40, 0x00, 0x01};
 
 // --- String Descriptors ---
@@ -411,7 +412,7 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
       static uint8_t calibration[] = {0xfe, 0xff, 0x0e, 0x00, 0x04, 0x00, 0xd4, 0x22, 0x2a, 0xdd, 0xbb, 0x22,
                                       0x5e, 0xdd, 0x81, 0x22, 0x84, 0xdd, 0x1c, 0x02, 0x1c, 0x02, 0x85, 0x1f,
                                       0xb0, 0xe0, 0xc6, 0x20, 0xb5, 0xe0, 0xb1, 0x20, 0x83, 0xdf, 0x0c, 0x00};
-      responseLen = max(reqlen, sizeof(calibration));
+      responseLen = min(reqlen, sizeof(calibration));
       memcpy(buffer, calibration, responseLen);
       return responseLen;
     }
@@ -420,7 +421,7 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
                                           0x03, 0x04, 0x00, 0xff, 0x7f, 0x0d, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00,
                                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-      responseLen = max(reqlen, sizeof(controller_desc));
+      responseLen = min(reqlen, sizeof(controller_desc));
       memcpy(buffer, controller_desc, responseLen);
       buffer[4] = 0x00;  // controller type: 0x00 = DS4
       return responseLen;
@@ -434,7 +435,7 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
       if (reqlen < sizeof(mac_address)) {
         return -1;
       }
-      responseLen = max(reqlen, sizeof(mac_address));
+      responseLen = min(reqlen, sizeof(mac_address));
       memcpy(buffer, mac_address, responseLen);
       return responseLen;
     }
@@ -445,7 +446,7 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
       if (reqlen < sizeof(mac_address_short)) {
         return -1;
       }
-      responseLen = max(reqlen, sizeof(mac_address_short));
+      responseLen = min(reqlen, sizeof(mac_address_short));
       memcpy(buffer, mac_address_short, responseLen);
       return responseLen;
     }
@@ -454,7 +455,7 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
                                                 0x00, 0x00, 0x00, 0x00, 0x31, 0x32, 0x3a, 0x33, 0x36, 0x3a, 0x34, 0x31,
                                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x08, 0xb4,
                                                 0x01, 0x00, 0x00, 0x00, 0x07, 0xa0, 0x10, 0x20, 0x00, 0xa0, 0x02, 0x00};
-      responseLen = max(reqlen, sizeof(firmware_version_date));
+      responseLen = min(reqlen, sizeof(firmware_version_date));
       memcpy(buffer, firmware_version_date, responseLen);
       return responseLen;
     }
@@ -469,7 +470,7 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
     case DS4_RESET_AUTH: {
       PICO_DEBUG("tud_hid_get_report_cb: DS4_RESET_AUTH\n");
       static uint8_t reset_auth[] = {0x0, 0x38, 0x38, 0, 0, 0, 0};
-      responseLen = max(reqlen, sizeof(reset_auth));
+      responseLen = min(reqlen, sizeof(reset_auth));
       memcpy(buffer, reset_auth, responseLen);
       return responseLen;
     }
@@ -490,6 +491,7 @@ void tud_hid_set_report_cb(uint8_t instance,
                            uint8_t const* buffer,
                            uint16_t bufsize) {
   (void)instance;
+  PICO_DEBUG("################### tud_hid_set_report_cb: ID=%d, Type=%d, Size=%d\n", report_id, report_type, bufsize);
 
 #if IS_PICO_DEBUG
   static int report_count = 0;
@@ -547,8 +549,17 @@ void tud_hid_set_report_cb(uint8_t instance,
 
 void tud_mount_cb(void) {
   PICO_INFO("USB mounted\n");
+  is_usb_mounted = true;
 }
 
 void tud_umount_cb(void) {
   PICO_INFO("USB unmounted\n");
+}
+
+void tud_hid_report_complete_cb(uint8_t instance, uint8_t const* report, uint16_t len) {
+  PICO_DEBUG("################### tud_hid_report_complete_cb: ID=%d, Size=%d\n", report[0], len);
+}
+
+void tud_hid_report_failed_cb(uint8_t instance, hid_report_type_t report_type, uint8_t const* report, uint16_t xferred_bytes) {
+  PICO_DEBUG("################### tud_hid_report_failed_cb: ID=%d, Type=%d, Size=%d\n", report[0], report_type, xferred_bytes);
 }
