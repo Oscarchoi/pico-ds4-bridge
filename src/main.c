@@ -37,15 +37,21 @@ void usb_thread_run() {
   tusb_rhport_init_t dev_init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_AUTO};
   tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
+  PICO_DEBUG("################### tusb_init\n");
+
   // Initialize USB HID Device stack
   while (!is_ds4_initialized) {
     tud_task();
     sleep_ms(2);
   }
+
+  PICO_DEBUG("################### tusb inititialized\n");
   do {
     tud_task();
     sleep_ms(2);
-  } while (!tud_hid_report(0, &zero_report, sizeof(ds4_report_t)));
+  } while (!tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t)));
+
+  PICO_DEBUG("################### tusb hid initialized\n");
 
   // Communication variables
   uint32_t last_updated = 0;
@@ -97,7 +103,7 @@ void usb_thread_run() {
       // not received for 5ms
       if (is_updated) {
         // report when dualshock4 is updated
-        tud_hid_report(0, &report, sizeof(ds4_report_t));
+        tud_hid_report(0x01, &report, sizeof(ds4_report_t));
         last_reported = get_absolute_time();
 
         // blink the LED every 250 reports
@@ -113,7 +119,7 @@ void usb_thread_run() {
         absolute_time_t now = get_absolute_time();
         int64_t elapsed_us = absolute_time_diff_us(last_reported, now);
         if (elapsed_us > BT_UPDATE_TIMEOUT_US) {
-          tud_hid_report(0, &zero_report, sizeof(ds4_report_t));
+          tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t));
           last_reported = get_absolute_time();
           is_connected = false;
 #if IS_PICO_DEBUG

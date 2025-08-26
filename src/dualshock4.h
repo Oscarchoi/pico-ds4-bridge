@@ -79,7 +79,9 @@ typedef struct __attribute__((packed)) {
 
 // See for more details: https://www.psdevwiki.com/ps4/DS4-USB#Data_Format
 typedef struct __attribute__((packed)) {
-  uint8_t report_id;      // 0
+  // NOTE(oscarchoi): if report does not contain report_id, it is required to
+  // invoke tud_hid_report() with report_id which is not 0x00.
+  // uint8_t report_id;      // 0 (not used)
   uint8_t left_stick_x;   // 1
   uint8_t left_stick_y;   // 2
   uint8_t right_stick_x;  // 3
@@ -141,11 +143,11 @@ typedef struct __attribute__((packed)) {
   uint8_t unknown5[12];  // 52-63
 } ds4_report_t;
 
-_Static_assert(sizeof(ds4_report_t) == 64, "DS4 report size mismatch");
-_Static_assert(offsetof(ds4_report_t, temperature) == 12, "temperature byte must be at 12");
-_Static_assert(offsetof(ds4_report_t, tpad_counter) == 34,
+_Static_assert(sizeof(ds4_report_t) == 63, "DS4 report size mismatch");
+_Static_assert(offsetof(ds4_report_t, temperature) == 11, "temperature byte must be at 12");
+_Static_assert(offsetof(ds4_report_t, tpad_counter) == 33,
                "touch block must start at byte offset 34");
-_Static_assert(offsetof(ds4_report_t, unknown5) == 52, "unknown5 byte must be at 52");
+_Static_assert(offsetof(ds4_report_t, unknown5) == 51, "unknown5 byte must be at 52");
 
 ds4_report_t default_ds4_report();
 

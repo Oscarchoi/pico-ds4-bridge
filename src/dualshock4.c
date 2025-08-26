@@ -5,7 +5,7 @@
 
 ds4_report_t default_ds4_report() {
   ds4_report_t report = {
-      .report_id = 0x01,
+      // .report_id = 0x01,
       .left_stick_x = DS4_JOYSTICK_MID,
       .left_stick_y = DS4_JOYSTICK_MID,
       .right_stick_x = DS4_JOYSTICK_MID,
@@ -87,7 +87,7 @@ void convert_uni_to_ds4(const uni_gamepad_t gamepad, const uint8_t battery, ds4_
     return;
   }
 
-  ds4->report_id = 0x01;
+  // ds4->report_id = 0x01;
   ds4->left_stick_x = (uint8_t)(gamepad.axis_x / 4 + 127);
   ds4->left_stick_y = (uint8_t)(gamepad.axis_y / 4 + 127);
   ds4->right_stick_x = (uint8_t)(gamepad.axis_rx / 4 + 127);
