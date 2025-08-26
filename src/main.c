@@ -128,10 +128,10 @@ void usb_thread_run() {
       int64_t stat_elapsed_us = absolute_time_diff_us(last_stat_time, now);
       if (stat_elapsed_us >= 1000000) {
         double elapsed_sec = absolute_time_diff_us(stat_start_time, now) / 1000000.0;
-        ds4_update_count = 0;
-        ds4_missed_count = 0;
         last_stat_time = now;
         PICO_DEBUG("[USB] USB Elapsed: %f, Updates: %u, Misses: %u\n", elapsed_sec, ds4_update_count, ds4_missed_count);
+        ds4_update_count = 0;
+        ds4_missed_count = 0;
       }
 #endif
     }
