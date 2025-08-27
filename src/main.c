@@ -57,6 +57,8 @@ void usb_thread_run() {
     sleep_ms(10);
   } while (!tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t)));
 
+  PICO_DEBUG("################### tud_hid_report: 1\n");
+
   sleep_ms(1000);
 
   PICO_DEBUG("################### tusb hid initialized\n");
@@ -94,11 +96,12 @@ void usb_thread_run() {
 
   while (true) {
     tud_task();
+    // PICO_DEBUG("################### tud_task\n");
 
     ds4_frame_t data;
     ds4_report_t report;
 
-    if (tud_hid_ready()) {
+    if (tud_hid_ready() && !report_in_flight) {
       // PICO_DEBUG("################### tud_hid_ready true\n");
       is_updated = false;
 
@@ -116,7 +119,10 @@ void usb_thread_run() {
       // not received for 5ms
       if (is_updated) {
         // report when dualshock4 is updated
-        // tud_hid_report(0x01, &report, sizeof(ds4_report_t));
+        bool ret = tud_hid_report(0x01, &report, sizeof(ds4_report_t));
+        // bool ret = tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t));
+        report_in_flight = true;
+        // PICO_DEBUG("################### tud_hid_report: %d\n", ret);
         last_reported = get_absolute_time();
 
         // blink the LED every 250 reports
@@ -132,9 +138,12 @@ void usb_thread_run() {
         absolute_time_t now = get_absolute_time();
         int64_t elapsed_us = absolute_time_diff_us(last_reported, now);
         if (elapsed_us > BT_UPDATE_TIMEOUT_US) {
-          tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t));
+          bool ret = tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t));
+          report_in_flight = true;
+          PICO_DEBUG("################### tud_hid_report: %d\n", ret);
           last_reported = get_absolute_time();
           is_connected = false;
+          sleep_ms(100);
 #if IS_PICO_DEBUG
           ds4_missed_count++;
           PICO_DEBUG("[USB] USB report missed for %lld us.\n", elapsed_us);
