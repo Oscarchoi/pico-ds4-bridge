@@ -38,30 +38,18 @@ void usb_thread_run() {
                                  .speed = TUSB_SPEED_AUTO};
   tusb_init(BOARD_TUD_RHPORT, &dev_init);
 
-  PICO_DEBUG("################### tusb_init\n");
-
   while (!is_usb_mounted) {
     tud_task();
     sleep_ms(10);
   }
 
-  // // Initialize USB HID Device stack
-  // while (!is_ds4_initialized) {
-  //   tud_task();
-  //   sleep_ms(2);
-  // }
-
-  PICO_DEBUG("################### tusb mounted\n");
+  // Initialize USB HID Device stack
   do {
     tud_task();
     sleep_ms(10);
   } while (!tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t)));
 
-  PICO_DEBUG("################### tud_hid_report: 1\n");
-
   sleep_ms(1000);
-
-  PICO_DEBUG("################### tusb hid initialized\n");
 
   // Communication variables
   uint32_t last_updated = 0;
@@ -82,8 +70,6 @@ void usb_thread_run() {
   uint32_t ds4_missed_count = 0;
 #endif
 
-  PICO_DEBUG("################### usb thread started\n");
-
   // Allocate memory for the local report
   ds4_report_t* local_report_ptr = (ds4_report_t*)malloc(sizeof(ds4_report_t));
   if (local_report_ptr == NULL) {
@@ -92,19 +78,14 @@ void usb_thread_run() {
   }
   memset(local_report_ptr, 0, sizeof(ds4_report_t));
 
-  PICO_DEBUG("################### usb thread initialized\n");
-
   while (true) {
     tud_task();
-    // PICO_DEBUG("################### tud_task\n");
 
     ds4_frame_t data;
     ds4_report_t report;
 
+    is_updated = false;
     if (tud_hid_ready() && !report_in_flight) {
-      // PICO_DEBUG("################### tud_hid_ready true\n");
-      is_updated = false;
-
       SEQLOCK_TRY_READ(&data, g_ds4_shared);
       int32_t time_diff = data.timestamp - last_updated;
       if (time_diff > 0) {
@@ -117,20 +98,14 @@ void usb_thread_run() {
 
       // report when dualshock4 is updated or send default report if update is
       // not received for 5ms
-      if (is_updated) {
-        // report when dualshock4 is updated
-        bool ret = tud_hid_report(0x01, &report, sizeof(ds4_report_t));
-        // bool ret = tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t));
+      if (is_updated && tud_hid_report(0x01, &report, sizeof(ds4_report_t))) {
         report_in_flight = true;
-        // PICO_DEBUG("################### tud_hid_report: %d\n", ret);
         last_reported = get_absolute_time();
-
         // blink the LED every 250 reports
         if (counter++ % (BT_UPDATE_PER_SEC / 2) == 0) {
           cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, blink_on ^= 1);
           sleep_us(100);
         }
-
 #if IS_PICO_DEBUG
         ds4_update_count++;
 #endif
@@ -138,16 +113,16 @@ void usb_thread_run() {
         absolute_time_t now = get_absolute_time();
         int64_t elapsed_us = absolute_time_diff_us(last_reported, now);
         if (elapsed_us > BT_UPDATE_TIMEOUT_US) {
-          bool ret = tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t));
-          report_in_flight = true;
-          PICO_DEBUG("################### tud_hid_report: %d\n", ret);
-          last_reported = get_absolute_time();
-          is_connected = false;
-          sleep_ms(100);
+          if (tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t))) {
+            report_in_flight = true;
+            last_reported = get_absolute_time();
+            is_connected = false;
+            sleep_ms(100);
 #if IS_PICO_DEBUG
-          ds4_missed_count++;
-          PICO_DEBUG("[USB] USB report missed for %lld us.\n", elapsed_us);
+            ds4_missed_count++;
+            PICO_DEBUG("[USB] USB report missed for %lld us.\n", elapsed_us);
 #endif
+          }
         }
       }
 
@@ -168,9 +143,8 @@ void usb_thread_run() {
 
     if (tud_suspended()) {
       tud_remote_wakeup();
-      PICO_DEBUG("################### tud_remote_wakeup\n");
     }
-    // sleep_ms(1);
+    sleep_ms(1);
   }
 }
 

@@ -409,8 +409,6 @@ uint16_t tud_hid_get_report_cb(uint8_t instance,
     PICO_DEBUG("tud_hid_get_report_cb: not feature report\n");
     return 0;
   }
-  printf("############# tud_hid_get_report_cb: id=%d, type=%d, size=%d\n", report_id,
-         report_type, reqlen);
 
   PICO_INFO("Got hid report: id=%d, type=%d, size=%d\n", report_id, report_type,
             reqlen);
@@ -500,9 +498,6 @@ void tud_hid_set_report_cb(uint8_t instance,
                            uint8_t const* buffer,
                            uint16_t bufsize) {
   (void)instance;
-  PICO_DEBUG(
-      "################### tud_hid_set_report_cb: ID=%d, Type=%d, Size=%d\n",
-      report_id, report_type, bufsize);
 
 #if IS_PICO_DEBUG
   static int report_count = 0;
@@ -575,28 +570,15 @@ void tud_hid_report_complete_cb(uint8_t instance,
                                 uint8_t const* report,
                                 uint16_t len) {
   report_in_flight = false;
-  // PICO_DEBUG("################### tud_hid_report_complete_cb: ID=%d, Size=%d\n",
-  //            report[0], len);
 }
 
 void tud_hid_report_failed_cb(uint8_t instance,
                               hid_report_type_t report_type,
                               uint8_t const* report,
-                              uint16_t xferred_bytes) {
-  PICO_DEBUG(
-      "################### tud_hid_report_failed_cb: ID=%d, Type=%d, Size=%d\n",
-      report[0], report_type, xferred_bytes);
-}
+                              uint16_t xferred_bytes) {}
 
-void tud_suspend_cb(bool remote_wakeup_en) {
-  PICO_DEBUG("[USB] SUSPEND (remote_wakeup_en=%d)\n", remote_wakeup_en);
-}
+void tud_suspend_cb(bool remote_wakeup_en) {}
 
-void tud_resume_cb(void) {
-  PICO_DEBUG("[USB] RESUME\n");
-}
+void tud_resume_cb(void) {}
 
-void tud_hid_report_received_cb(uint8_t itf, uint8_t const* rpt, uint16_t len) {
-  PICO_DEBUG("################### tud_hid_report_received_cb: itf=%d, size=%d\n", itf, len);
-  // if (len && rpt[0] == 0x05) { /* LED/rumble */ }
-}
+void tud_hid_report_received_cb(uint8_t itf, uint8_t const* rpt, uint16_t len) {}
