@@ -69,7 +69,9 @@ The build will generate `pico_ds4_bridge.uf2` file.
 3. The Pico 2W will automatically discover and connect to the DS4
 4. Connect the Pico 2W to your target device via USB
 5. Your DS4 input will be forwarded as a standard USB HID gamepad
-6. The onboard LED will blink to indicate active connection and data transfer
+6. The onboard LED indicates the current state:
+   - Fast blink: scanning / waiting for a controller
+   - Slow (~1Hz) blink: controller connected and streaming data
 
 ## Configuration
 

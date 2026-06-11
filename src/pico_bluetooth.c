@@ -24,6 +24,48 @@
 // Declarations
 static void trigger_event_on_gamepad(uni_hid_device_t* d);
 
+// LED status indication, all driven from this core since the CYW43 LED
+// shares the Bluetooth SPI bus:
+//   - scanning / waiting for a controller: fast blink (timer below)
+//   - controller connected and streaming:  ~1Hz heartbeat from
+//     pico_bluetooth_on_controller_data()
+#define LED_SCAN_BLINK_INTERVAL_MS 150
+
+static btstack_timer_source_t led_scan_timer;
+static bool led_device_connected = false;
+
+static void led_set(bool on) {
+  cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
+}
+
+static void led_scan_timer_handler(btstack_timer_source_t* ts) {
+  // A device connected since the last tick; data heartbeat takes over.
+  if (led_device_connected)
+    return;
+
+  static bool led_on = false;
+  led_on = !led_on;
+  led_set(led_on);
+
+  btstack_run_loop_set_timer(ts, LED_SCAN_BLINK_INTERVAL_MS);
+  btstack_run_loop_add_timer(ts);
+}
+
+// Must be called from the btstack run loop context (core 1).
+static void led_scan_blink_start(void) {
+  led_device_connected = false;
+  btstack_run_loop_remove_timer(&led_scan_timer);
+  btstack_run_loop_set_timer_handler(&led_scan_timer, led_scan_timer_handler);
+  btstack_run_loop_set_timer(&led_scan_timer, LED_SCAN_BLINK_INTERVAL_MS);
+  btstack_run_loop_add_timer(&led_scan_timer);
+}
+
+static void led_scan_blink_stop(void) {
+  led_device_connected = true;
+  btstack_run_loop_remove_timer(&led_scan_timer);
+  led_set(false);
+}
+
 // Platform Overrides
 static void pico_bluetooth_init(int argc, const char** argv) {
   ARG_UNUSED(argc);
@@ -43,6 +85,7 @@ static void pico_bluetooth_on_init_complete(void) {
 
   // Start scanning and autoconnect to supported controllers.
   uni_bt_start_scanning_and_autoconnect_safe();
+  led_scan_blink_start();
   PICO_INFO("Started Bluetooth scanning for new devices.\n");
 
   uni_property_dump_all();
@@ -79,6 +122,7 @@ static void pico_bluetooth_on_device_connected(uni_hid_device_t* d) {
 
   // Disable scanning when a device is connected to save power
   uni_bt_stop_scanning_safe();
+  led_scan_blink_stop();
   PICO_DEBUG("[BT] Stopped scanning (device connected)\n");
 }
 
@@ -88,6 +132,7 @@ static void pico_bluetooth_on_device_disconnected(uni_hid_device_t* d) {
 
   // Re-enable scanning when a device is disconnected
   uni_bt_start_scanning_and_autoconnect_safe();
+  led_scan_blink_start();
   PICO_DEBUG("[BT] Restarted scanning (device disconnected)\n");
 }
 
