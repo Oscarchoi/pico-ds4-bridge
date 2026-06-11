@@ -24,46 +24,40 @@
 // Declarations
 static void trigger_event_on_gamepad(uni_hid_device_t* d);
 
-// LED status indication, all driven from this core since the CYW43 LED
-// shares the Bluetooth SPI bus:
-//   - scanning / waiting for a controller: fast blink (timer below)
-//   - controller connected and streaming:  ~1Hz heartbeat from
-//     pico_bluetooth_on_controller_data()
+// LED status indication, driven by a single persistent run-loop timer on
+// this core (the CYW43 LED shares the Bluetooth SPI bus):
+//   - no recent controller data: fast blink (scanning / waiting)
+//   - controller data streaming: slow ~1Hz blink
+// The blink rate is derived from how recently controller data arrived
+// rather than from connect/disconnect callbacks, whose ordering varies
+// across pairing and reconnect sequences (connect -> disconnect ->
+// reconnect is common with the DS4).
 #define LED_SCAN_BLINK_INTERVAL_MS 150
+#define LED_STREAM_BLINK_INTERVAL_MS 500
+#define LED_DATA_FRESH_US 500000
 
-static btstack_timer_source_t led_scan_timer;
-static bool led_device_connected = false;
+static btstack_timer_source_t led_timer;
+static uint32_t led_last_data_us;
+static bool led_seen_data = false;
 
-static void led_set(bool on) {
-  cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
-}
-
-static void led_scan_timer_handler(btstack_timer_source_t* ts) {
-  // A device connected since the last tick; data heartbeat takes over.
-  if (led_device_connected)
-    return;
-
+static void led_timer_handler(btstack_timer_source_t* ts) {
   static bool led_on = false;
-  led_on = !led_on;
-  led_set(led_on);
+  bool streaming = led_seen_data &&
+                   (time_us_32() - led_last_data_us) < LED_DATA_FRESH_US;
 
-  btstack_run_loop_set_timer(ts, LED_SCAN_BLINK_INTERVAL_MS);
+  led_on = !led_on;
+  cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
+
+  btstack_run_loop_set_timer(ts, streaming ? LED_STREAM_BLINK_INTERVAL_MS
+                                           : LED_SCAN_BLINK_INTERVAL_MS);
   btstack_run_loop_add_timer(ts);
 }
 
 // Must be called from the btstack run loop context (core 1).
-static void led_scan_blink_start(void) {
-  led_device_connected = false;
-  btstack_run_loop_remove_timer(&led_scan_timer);
-  btstack_run_loop_set_timer_handler(&led_scan_timer, led_scan_timer_handler);
-  btstack_run_loop_set_timer(&led_scan_timer, LED_SCAN_BLINK_INTERVAL_MS);
-  btstack_run_loop_add_timer(&led_scan_timer);
-}
-
-static void led_scan_blink_stop(void) {
-  led_device_connected = true;
-  btstack_run_loop_remove_timer(&led_scan_timer);
-  led_set(false);
+static void led_blink_start(void) {
+  btstack_run_loop_set_timer_handler(&led_timer, led_timer_handler);
+  btstack_run_loop_set_timer(&led_timer, LED_SCAN_BLINK_INTERVAL_MS);
+  btstack_run_loop_add_timer(&led_timer);
 }
 
 // Platform Overrides
@@ -85,7 +79,7 @@ static void pico_bluetooth_on_init_complete(void) {
 
   // Start scanning and autoconnect to supported controllers.
   uni_bt_start_scanning_and_autoconnect_safe();
-  led_scan_blink_start();
+  led_blink_start();
   PICO_INFO("Started Bluetooth scanning for new devices.\n");
 
   uni_property_dump_all();
@@ -122,7 +116,6 @@ static void pico_bluetooth_on_device_connected(uni_hid_device_t* d) {
 
   // Disable scanning when a device is connected to save power
   uni_bt_stop_scanning_safe();
-  led_scan_blink_stop();
   PICO_DEBUG("[BT] Stopped scanning (device connected)\n");
 }
 
@@ -132,7 +125,6 @@ static void pico_bluetooth_on_device_disconnected(uni_hid_device_t* d) {
 
   // Re-enable scanning when a device is disconnected
   uni_bt_start_scanning_and_autoconnect_safe();
-  led_scan_blink_start();
   PICO_DEBUG("[BT] Restarted scanning (device disconnected)\n");
 }
 
@@ -160,16 +152,9 @@ static void __not_in_flash_func(pico_bluetooth_on_controller_data)(uni_hid_devic
   frame->timestamp = time_us_32();
   ds4_mailbox_publish(&g_ds4_mailbox);
 
-  // LED heartbeat. The CYW43 LED shares the Bluetooth SPI bus, so it must be
-  // driven from this core only; toggling twice a second is negligible here,
-  // while doing it from the USB core would contend with HCI traffic.
-  static uint32_t led_counter = 0;
-  static bool led_on = false;
-  if (++led_counter >= 125) {
-    led_counter = 0;
-    led_on = !led_on;
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
-  }
+  // Feed the LED status timer; both run on this core's run loop.
+  led_last_data_us = frame->timestamp;
+  led_seen_data = true;
 
 #if IS_PICO_DEBUG
   static int count = 0;
