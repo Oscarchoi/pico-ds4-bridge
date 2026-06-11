@@ -12,21 +12,15 @@ target_include_directories(dualshock4 PUBLIC
     ${PICO_SDK_PATH}/lib/btstack/src
 )
 
+# cyw43 driver work runs in a low-priority IRQ on the core that calls
+# cyw43_arch_init() (core 1), keeping it isolated from the USB core.
 target_link_libraries(dualshock4 PUBLIC
     pico_stdlib
-    pico_cyw43_arch_none # Remove Wi-Fi stack
-    pico_cyw43_arch_threadsafe_background
+    pico_cyw43_arch_threadsafe_background # No Wi-Fi/lwIP stack
     pico_btstack_classic
     pico_btstack_ble
     pico_btstack_cyw43
     bluepad32
-)
-
-add_compile_definitions(dualshock4
-    PICO_CYW43_ARCH_THREADSAFE_BACKGROUND
-    # PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=3000
-    # WANT_HCI_DUMP=1 # This enables btstack debug
-    # ENABLE_SEGGER_RTT=1
 )
 
 add_executable(${PROJECT_NAME}
@@ -42,8 +36,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
     pico_stdlib
-    pico_cyw43_arch_none # Remove Wi-Fi stack
-    pico_cyw43_arch_threadsafe_background
+    pico_cyw43_arch_threadsafe_background # No Wi-Fi/lwIP stack
     pico_multicore
     dualshock4
     tinyusb_device

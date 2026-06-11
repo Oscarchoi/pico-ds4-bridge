@@ -5,10 +5,13 @@
 // https://github.com/raspberrypi/pico-examples/blob/master/pico_w/bt/config/btstack_config.h
 
 // BTstack features that can be enabled
+// Info-level logging adds a call per HCI event; only compile it in for
+// debug builds. SCO (BT audio) is not used by gamepads at all.
+#if defined(PICO_DEBUG_MODE) && PICO_DEBUG_MODE
 #define ENABLE_LOG_INFO
+#endif
 #define ENABLE_LOG_ERROR
-#define ENABLE_PRINTF_HEXDUMP
-#define ENABLE_SCO_OVER_HCI
+#define ENABLE_PRINTF_HEXDUMP  // required by hci_dump_embedded_stdout
 
 #ifdef ENABLE_BLE
 #define ENABLE_GATT_CLIENT_PAIRING

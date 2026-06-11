@@ -28,7 +28,25 @@ pico_sdk_init()
 
 ###############################################################################
 
-# add_compile_definitions()
+# Debug logging uses blocking UART printf on both cores; on the Bluetooth
+# core a single log line can cost milliseconds, so it is opt-in.
+option(DS4_DEBUG_LOGGING "Enable debug logging (blocking UART printf)" OFF)
+
+# Deleting stored pairing keys forces a fresh pairing on every boot.
+# Keeping them (default) lets a paired controller auto-reconnect.
+option(DS4_DELETE_BT_KEYS_ON_BOOT "Delete stored BT pairing keys on boot" OFF)
+
+if(DS4_DEBUG_LOGGING)
+    add_compile_definitions(PICO_DEBUG_MODE=1)
+else()
+    add_compile_definitions(PICO_DEBUG_MODE=0)
+endif()
+
+if(DS4_DELETE_BT_KEYS_ON_BOOT)
+    add_compile_definitions(PICO_DS4_DELETE_BT_KEYS_ON_BOOT=1)
+else()
+    add_compile_definitions(PICO_DS4_DELETE_BT_KEYS_ON_BOOT=0)
+endif()
 
 add_subdirectory(src)
 

@@ -300,6 +300,12 @@ uint8_t const ds4_hid_report_desc[] = {
     0xC0,              // End Collection
 };
 
+// Interrupt IN endpoint polling interval. The controller pushes frames every
+// 4ms (250Hz); polling the device at 1ms keeps the worst-case host-side
+// delivery delay under 1ms instead of beating against the 4ms BT cadence
+// (which periodically delays frames by up to a full 4ms).
+#define DS4_HID_POLL_INTERVAL_MS 1
+
 #define DS4_CONFIG1_DESC_SIZE (9 + 9 + 9 + 7 + 7)
 static const uint8_t ds4_configuration_descriptor[] = {
     // configuration descriptor, USB spec 9.6.3, page 264-266, Table 9-10
@@ -337,7 +343,8 @@ static const uint8_t ds4_configuration_descriptor[] = {
     GAMEPAD_ENDPOINT | 0x80,  // bEndpointAddress
     0x03,                     // bmAttributes (0x03=intr)
     GAMEPAD_SIZE, 0,          // wMaxPacketSize
-    4,                        // bInterval (4 ms)
+    DS4_HID_POLL_INTERVAL_MS,  // bInterval
+    // endpoint descriptor: interrupt OUT (host -> device output reports)
     0x07, 0x05, 0x03, 0x03, 0x40, 0x00, 0x01};
 
 // --- String Descriptors ---
@@ -575,7 +582,11 @@ void tud_hid_report_complete_cb(uint8_t instance,
 void tud_hid_report_failed_cb(uint8_t instance,
                               hid_report_type_t report_type,
                               uint8_t const* report,
-                              uint16_t xferred_bytes) {}
+                              uint16_t xferred_bytes) {
+  // Without this, a failed IN transfer would leave report_in_flight stuck
+  // at true and stall reporting forever.
+  report_in_flight = false;
+}
 
 void tud_suspend_cb(bool remote_wakeup_en) {}
 

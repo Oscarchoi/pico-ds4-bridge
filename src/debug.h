@@ -3,9 +3,10 @@
 
 #include <stdio.h>
 
-// Debug mode detection
+// Debug mode detection. Normally set by CMake (DS4_DEBUG_LOGGING option);
+// default to release since UART printf blocks the calling core.
 #ifndef PICO_DEBUG_MODE
-#define PICO_DEBUG_MODE 1
+#define PICO_DEBUG_MODE 0
 #endif
 
 #define IS_PICO_DEBUG (PICO_DEBUG_MODE == 1)
