@@ -153,6 +153,6 @@ ds4_report_t default_ds4_report();
 
 uint8_t dpad_mask_to_hat(uint8_t mask);
 
-void convert_uni_to_ds4(const uni_gamepad_t gamepad, const uint8_t battery, ds4_report_t* ds4);
+void convert_uni_to_ds4(const uni_gamepad_t* gamepad, uint8_t battery, ds4_report_t* ds4);
 
 #endif  // DUALSHOCK4_H_

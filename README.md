@@ -78,7 +78,20 @@ Key configuration parameters in `src/main.c`:
 - `BT_UPDATE_TIMEOUT_US`: Timeout for Bluetooth packet updates (40ms)
 - `BT_UPDATE_PER_SEC`: Expected update rate (250 Hz)
 
+CMake options (pass with `-D<option>=ON` when configuring):
+
+- `DS4_DEBUG_LOGGING` (default `OFF`): Compile in debug logs. Logs are
+  printed over a blocking 115200 UART from both cores, so leave this off in
+  production - a single log line on the Bluetooth core costs milliseconds
+  out of the 4ms packet budget.
+- `DS4_DELETE_BT_KEYS_ON_BOOT` (default `OFF`): Delete stored Bluetooth
+  pairing keys on every boot, forcing a fresh pairing each power cycle.
+  Keeping them off lets an already-paired controller reconnect
+  automatically.
+
 ## Debug Output
+
+Build with `-DDS4_DEBUG_LOGGING=ON` to enable debug logs.
 
 Debug information is available via UART on GPIO pins:
 - GPIO 0 (Pin 1): UART TX

@@ -7,6 +7,7 @@
 #include <btstack.h>
 #include <controller/uni_gamepad.h>
 #include <pico/cyw43_arch.h>
+#include <pico.h>
 #include <pico/time.h>
 #include <uni.h>
 #include <uni_hid_device.h>
@@ -33,8 +34,12 @@ static void pico_bluetooth_on_init_complete(void) {
   // Safe to call "unsafe" functions since they are called
   PICO_INFO("Bluetooth initialization complete.\n");
 
-  // Delete stored BT keys for fresh pairing (helpful for initial connection)
+#if PICO_DS4_DELETE_BT_KEYS_ON_BOOT
+  // Delete stored BT keys for fresh pairing (helpful for initial connection).
+  // Keeping the keys (default) lets an already-paired controller reconnect
+  // right after a power cycle without re-pairing.
   uni_bt_del_keys_unsafe();
+#endif
 
   // Start scanning and autoconnect to supported controllers.
   uni_bt_start_scanning_and_autoconnect_safe();
@@ -96,9 +101,30 @@ static const uni_property_t* pico_bluetooth_get_property(uni_property_idx_t idx)
   return NULL;
 }
 
-static void pico_bluetooth_on_controller_data(uni_hid_device_t* d, uni_controller_t* ctl) {
-  absolute_time_t now = get_absolute_time();
-  uint64_t now_since_boot = to_us_since_boot(now);
+// Hot path: runs once per Bluetooth packet (250Hz). Kept in RAM so its
+// timing never depends on the XIP flash cache shared with the USB core.
+static void __not_in_flash_func(pico_bluetooth_on_controller_data)(uni_hid_device_t* d, uni_controller_t* ctl) {
+  ARG_UNUSED(d);
+
+  if (ctl->klass != UNI_CONTROLLER_CLASS_GAMEPAD)
+    return;
+
+  ds4_frame_t* frame = ds4_mailbox_write_slot(&g_ds4_mailbox);
+  frame->gamepad = ctl->gamepad;
+  frame->battery = ctl->battery;
+  frame->timestamp = time_us_32();
+  ds4_mailbox_publish(&g_ds4_mailbox);
+
+  // LED heartbeat. The CYW43 LED shares the Bluetooth SPI bus, so it must be
+  // driven from this core only; toggling twice a second is negligible here,
+  // while doing it from the USB core would contend with HCI traffic.
+  static uint32_t led_counter = 0;
+  static bool led_on = false;
+  if (++led_counter >= 125) {
+    led_counter = 0;
+    led_on = !led_on;
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
+  }
 
 #if IS_PICO_DEBUG
   static int count = 0;
@@ -106,6 +132,7 @@ static void pico_bluetooth_on_controller_data(uni_hid_device_t* d, uni_controlle
 
   count++;
 
+  absolute_time_t now = get_absolute_time();
   int64_t elapsed_us = absolute_time_diff_us(last_updated, now);
   if (elapsed_us >= 1000000) {
     PICO_DEBUG("[BT] Bluetooth data received: %u\n", count);
@@ -113,30 +140,6 @@ static void pico_bluetooth_on_controller_data(uni_hid_device_t* d, uni_controlle
     count = 0;
   }
 #endif
-
-  switch (ctl->klass) {
-    case UNI_CONTROLLER_CLASS_GAMEPAD:
-      // Print device Id and dump gamepad.
-      // uni_controller_dump(ctl);
-      seqlock_write_begin(&g_ds4_shared.seq);
-      g_ds4_shared.data.gamepad = ctl->gamepad;
-      g_ds4_shared.data.battery = ctl->battery;
-      g_ds4_shared.data.timestamp = now_since_boot;
-      seqlock_write_end(&g_ds4_shared.seq);
-      break;
-    case UNI_CONTROLLER_CLASS_BALANCE_BOARD:
-      // DO NOTHING
-      break;
-    case UNI_CONTROLLER_CLASS_MOUSE:
-      // DO NOTHING
-      break;
-    case UNI_CONTROLLER_CLASS_KEYBOARD:
-      // DO NOTHING
-      break;
-    default:
-      loge("Unsupported controller class: %d\n", ctl->klass);
-      break;
-  }
 }
 
 static void pico_bluetooth_on_oob_event(uni_platform_oob_event_t event, void* data) {

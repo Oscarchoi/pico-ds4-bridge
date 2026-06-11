@@ -1,5 +1,4 @@
-#include <stdlib.h>
-
+#include <hardware/structs/bus_ctrl.h>
 #include <pico/cyw43_arch.h>
 #include <pico/multicore.h>
 #include <pico/stdlib.h>
@@ -19,6 +18,16 @@
 
 #define BT_UPDATE_TIMEOUT_US 40000  // 40ms timeout for bluetooth packet updates
 #define BT_UPDATE_PER_SEC 250       // 250 times per second
+
+// Upper bound for one USB loop iteration while idle. New Bluetooth frames
+// wake the loop immediately via SEV, so this only caps how late the
+// disconnect-timeout / suspend checks can run.
+#define USB_LOOP_IDLE_TIMEOUT_US 1000
+
+// btstack + bluepad32 callbacks nest deeper than the 2KB default core1
+// stack; give the Bluetooth core a dedicated 8KB stack.
+#define BT_CORE_STACK_SIZE 0x2000
+static uint32_t bt_core_stack[BT_CORE_STACK_SIZE / sizeof(uint32_t)];
 
 void bluetooth_thread_run() {
   // initialize CYW43 driver architecture
@@ -53,15 +62,11 @@ void usb_thread_run() {
   sleep_ms(1000);
 
   // Communication variables
-  uint32_t last_updated = 0;
-  uint32_t timestamp = 0;
-  bool is_updated = false;
   bool is_connected = false;
+  bool frame_pending = false;
+  ds4_frame_t frame;
+  ds4_report_t report;
   absolute_time_t last_reported = get_absolute_time();
-
-  // Blink LED every 250 reports
-  volatile uint32_t blink_on = 0;
-  volatile uint32_t counter = 0;
 
   // Stats based on time interval (디버그 모드에서만)
 #if IS_PICO_DEBUG
@@ -71,81 +76,64 @@ void usb_thread_run() {
   uint32_t ds4_missed_count = 0;
 #endif
 
-  // Allocate memory for the local report
-  ds4_report_t* local_report_ptr = (ds4_report_t*)malloc(sizeof(ds4_report_t));
-  if (local_report_ptr == NULL) {
-    PICO_ERROR("failed to allocate memory for local report\n");
-    return;
-  }
-  memset(local_report_ptr, 0, sizeof(ds4_report_t));
-
   while (true) {
     tud_task();
 
-    ds4_frame_t data;
-    ds4_report_t report;
-
-    is_updated = false;
     if (tud_hid_ready() && !report_in_flight) {
-      SEQLOCK_TRY_READ(&data, g_ds4_shared);
-      int32_t time_diff = data.timestamp - last_updated;
-      if (time_diff > 0) {
-        last_updated = data.timestamp;
-        convert_uni_to_ds4(data.gamepad, data.battery, &report);
-
-        is_updated = true;
-        is_connected = true;
-      }
-
-      // report when dualshock4 is updated or send default report if update is
-      // not received for 5ms
-      if (is_updated && tud_hid_report(0x01, &report, sizeof(ds4_report_t))) {
-        report_in_flight = true;
-        last_reported = get_absolute_time();
-        // blink the LED every 250 reports
-        if (counter++ % (BT_UPDATE_PER_SEC / 2) == 0) {
-          cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, blink_on ^= 1);
-          sleep_us(100);
-        }
+      // A frame kept from a failed send takes priority; otherwise pull the
+      // latest complete frame published by the Bluetooth core.
+      if (frame_pending || ds4_mailbox_read(&g_ds4_mailbox, &frame)) {
+        convert_uni_to_ds4(&frame.gamepad, frame.battery, &report);
+        if (tud_hid_report(0x01, &report, sizeof(ds4_report_t))) {
+          frame_pending = false;
+          report_in_flight = true;
+          last_reported = get_absolute_time();
+          is_connected = true;
 #if IS_PICO_DEBUG
-        ds4_update_count++;
+          ds4_update_count++;
 #endif
+        } else {
+          frame_pending = true;
+        }
       } else if (is_connected) {
+        // Reset the host to a neutral state if bluetooth updates stop.
         absolute_time_t now = get_absolute_time();
         int64_t elapsed_us = absolute_time_diff_us(last_reported, now);
-        if (elapsed_us > BT_UPDATE_TIMEOUT_US) {
-          if (tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t))) {
-            report_in_flight = true;
-            last_reported = get_absolute_time();
-            is_connected = false;
-            sleep_ms(100);
+        if (elapsed_us > BT_UPDATE_TIMEOUT_US &&
+            tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t))) {
+          report_in_flight = true;
+          last_reported = get_absolute_time();
+          is_connected = false;
 #if IS_PICO_DEBUG
-            ds4_missed_count++;
-            PICO_DEBUG("[USB] USB report missed for %lld us.\n", elapsed_us);
+          ds4_missed_count++;
+          PICO_DEBUG("[USB] USB report missed for %lld us.\n", elapsed_us);
 #endif
-          }
         }
       }
+    }
 
 #if IS_PICO_DEBUG
-      absolute_time_t now = get_absolute_time();
-      int64_t stat_elapsed_us = absolute_time_diff_us(last_stat_time, now);
-      if (stat_elapsed_us >= 1000000) {
-        double elapsed_sec =
-            absolute_time_diff_us(stat_start_time, now) / 1000000.0;
-        last_stat_time = now;
-        PICO_DEBUG("[USB] USB Elapsed: %f, Updates: %u, Misses: %u\n",
-                   elapsed_sec, ds4_update_count, ds4_missed_count);
-        ds4_update_count = 0;
-        ds4_missed_count = 0;
-      }
-#endif
+    absolute_time_t now = get_absolute_time();
+    int64_t stat_elapsed_us = absolute_time_diff_us(last_stat_time, now);
+    if (stat_elapsed_us >= 1000000) {
+      double elapsed_sec =
+          absolute_time_diff_us(stat_start_time, now) / 1000000.0;
+      last_stat_time = now;
+      PICO_DEBUG("[USB] USB Elapsed: %f, Updates: %u, Misses: %u\n",
+                 elapsed_sec, ds4_update_count, ds4_missed_count);
+      ds4_update_count = 0;
+      ds4_missed_count = 0;
     }
+#endif
 
     if (tud_suspended()) {
       tud_remote_wakeup();
     }
-    sleep_ms(1);
+
+    // Sleep until a USB IRQ, the SEV from the Bluetooth core (new frame),
+    // or the idle timeout - whichever comes first.
+    best_effort_wfe_or_timeout(
+        make_timeout_time_us(USB_LOOP_IDLE_TIMEOUT_US));
   }
 }
 
@@ -160,12 +148,15 @@ int main() {
 
   PICO_INFO("RPI PICO 2W started.\n");
 
-  // initialize dualshock4 shared data
-  g_ds4_shared.data.timestamp = to_ms_since_boot(get_absolute_time());
+  // Prioritize the Bluetooth core on the bus fabric so HCI traffic is never
+  // stalled by the USB core under contention.
+  bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_PROC1_BITS;
+
   sleep_ms(250);
 
-  // Initialize the CYW43 driver
-  multicore_launch_core1(bluetooth_thread_run);
+  // Run Bluetooth on core 1 with a dedicated stack
+  multicore_launch_core1_with_stack(bluetooth_thread_run, bt_core_stack,
+                                    sizeof(bt_core_stack));
 
   // Initialize the USB thread
   usb_thread_run();
