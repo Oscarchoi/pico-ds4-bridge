@@ -47,6 +47,9 @@ static bool led_seen_data = false;
 // the user cannot tell anything is wrong.
 #define USB_HOST_LOST_US 3000000
 
+// 0.625ms baseband slots: 3200 = 2s.
+#define BT_LINK_SUPERVISION_TIMEOUT_SLOTS 3200
+
 static uint32_t usb_down_since_us;
 static bool usb_host_lost = false;
 
@@ -143,6 +146,13 @@ static void pico_bluetooth_on_init_complete(void) {
   // right after a power cycle without re-pairing.
   uni_bt_del_keys_unsafe();
 #endif
+
+  // Shorten the link supervision timeout from btstack's 20s default. When
+  // the bridge dies without a clean disconnect (watchdog reboot, power
+  // loss), the controller only notices once this expires, and until then
+  // it looks connected. Applied to links where we are master, which
+  // bluepad32 requests for every connection.
+  gap_set_link_supervision_timeout(BT_LINK_SUPERVISION_TIMEOUT_SLOTS);
 
   // Start scanning and autoconnect to supported controllers.
   uni_bt_start_scanning_and_autoconnect_safe();
