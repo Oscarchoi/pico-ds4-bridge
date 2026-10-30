@@ -16,11 +16,12 @@ This project enables your Raspberry Pi Pico 2 W to act as a bridge between DualS
 - **Status LED**: Visual feedback for DS4 connection status
 - **Low Latency**: Optimized for gaming with minimal input delay (250Hz update rate)
 - **Battery Status**: Forwards DS4 battery level information
+- **Rumble**: Forwards host rumble requests (DS4 output report) to the connected controller (verified with DualSense)
 - **Debug Support**: Optional debug output via UART
 
 ## Planned Features
 
-- **DualSense Support** (TODO): PS5 DualSense controller support with haptic feedback and adaptive triggers
+- **DualSense Support** (TODO): Full PS5 DualSense support (input and rumble already work; haptic feedback and adaptive triggers are not supported yet)
 
 ## Libraries Used
 
@@ -109,6 +110,19 @@ sudo minicom -b 115200 -o -D /dev/ttyUSB0
 ```
 
 Replace `/dev/ttyUSB0` with your actual serial device path.
+
+### Testing Rumble
+
+With a controller connected, trigger rumble from a Linux host through the
+kernel force-feedback API (the same path games use):
+
+```bash
+python3 tools/ds4_rumble.py                                    # both motors
+python3 tools/ds4_rumble.py --strong 65535 --weak 0 --ms 3000  # left (strong) only
+```
+
+With debug logging on, each received request shows up as
+`[USB] Rumble: strong=... weak=...`.
 
 
 ## References

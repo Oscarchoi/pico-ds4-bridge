@@ -67,4 +67,25 @@ static inline bool ds4_mailbox_read(ds4_mailbox_t* mb, ds4_frame_t* out) {
   return true;
 }
 
+/*
+ * Rumble request from the USB host (USB core) to the controller (Bluetooth
+ * core). Only the latest motor levels matter, so a single atomic word
+ * (strong << 8 | weak) is enough: the USB core overwrites it whenever the
+ * host sends an output report, and the Bluetooth core forwards it to the
+ * controller when it changes.
+ */
+extern _Atomic uint32_t g_rumble_request;
+
+static inline void rumble_request_set(uint8_t strong, uint8_t weak) {
+  atomic_store_explicit(&g_rumble_request, ((uint32_t)strong << 8) | weak,
+                        memory_order_relaxed);
+}
+
+static inline uint32_t rumble_request_get(void) {
+  return atomic_load_explicit(&g_rumble_request, memory_order_relaxed);
+}
+
+#define RUMBLE_STRONG(r) ((uint8_t)((r) >> 8))
+#define RUMBLE_WEAK(r) ((uint8_t)(r))
+
 #endif  // COMM_H_

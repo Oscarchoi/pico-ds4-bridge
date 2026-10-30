@@ -6,3 +6,5 @@ ds4_mailbox_t g_ds4_mailbox = {
     .write_idx = 0,
     .read_idx = 1,
 };
+
+_Atomic uint32_t g_rumble_request = 0;
