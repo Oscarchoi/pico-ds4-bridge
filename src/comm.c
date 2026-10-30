@@ -8,3 +8,5 @@ ds4_mailbox_t g_ds4_mailbox = {
 };
 
 _Atomic uint32_t g_rumble_request = 0;
+_Atomic bool g_usb_link_up = false;
+_Atomic uint32_t g_bt_heartbeat = 0;

@@ -38,6 +38,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     pico_stdlib
     pico_cyw43_arch_threadsafe_background # No Wi-Fi/lwIP stack
     pico_multicore
+    hardware_watchdog
     dualshock4
     tinyusb_device
 )
