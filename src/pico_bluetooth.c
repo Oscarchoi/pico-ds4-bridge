@@ -60,6 +60,30 @@ static void led_blink_start(void) {
   btstack_run_loop_add_timer(&led_timer);
 }
 
+// Rumble forwarding. The host drives rumble as a level (it sends a new
+// output report on every change, including zero to stop), while bluepad32
+// plays rumble for a fixed duration. Each forwarded level is therefore
+// played for RUMBLE_DURATION_MS and re-sent every RUMBLE_REFRESH_US while it
+// stays non-zero. If the host vanishes without sending zero, the
+// controller stops on its own within RUMBLE_DURATION_MS.
+#define RUMBLE_DURATION_MS 1000
+#define RUMBLE_REFRESH_US 500000
+
+static uint32_t rumble_sent;
+static uint32_t rumble_sent_us;
+
+static void rumble_apply(uni_hid_device_t* d, uint32_t rumble, uint32_t now_us) {
+  rumble_sent = rumble;
+  rumble_sent_us = now_us;
+
+  if (d->report_parser.play_dual_rumble == NULL)
+    return;
+
+  // duration 0 stops any rumble in progress.
+  d->report_parser.play_dual_rumble(d, 0, rumble ? RUMBLE_DURATION_MS : 0, RUMBLE_WEAK(rumble),
+                                    RUMBLE_STRONG(rumble));
+}
+
 // Platform Overrides
 static void pico_bluetooth_init(int argc, const char** argv) {
   ARG_UNUSED(argc);
@@ -114,6 +138,10 @@ static void pico_bluetooth_on_device_connected(uni_hid_device_t* d) {
   PICO_INFO("Device connected: %s (%02X:%02X:%02X:%02X:%02X:%02X)\n", d->name, d->conn.btaddr[0], d->conn.btaddr[1],
             d->conn.btaddr[2], d->conn.btaddr[3], d->conn.btaddr[4], d->conn.btaddr[5]);
 
+  // A freshly connected controller is not rumbling; make sure the current
+  // host request (if any) gets forwarded to it.
+  rumble_sent = 0;
+
   // Disable scanning when a device is connected to save power
   uni_bt_stop_scanning_safe();
   PICO_DEBUG("[BT] Stopped scanning (device connected)\n");
@@ -141,8 +169,6 @@ static const uni_property_t* pico_bluetooth_get_property(uni_property_idx_t idx)
 // Hot path: runs once per Bluetooth packet (250Hz). Kept in RAM so its
 // timing never depends on the XIP flash cache shared with the USB core.
 static void __not_in_flash_func(pico_bluetooth_on_controller_data)(uni_hid_device_t* d, uni_controller_t* ctl) {
-  ARG_UNUSED(d);
-
   if (ctl->klass != UNI_CONTROLLER_CLASS_GAMEPAD)
     return;
 
@@ -155,6 +181,14 @@ static void __not_in_flash_func(pico_bluetooth_on_controller_data)(uni_hid_devic
   // Feed the LED status timer; both run on this core's run loop.
   led_last_data_us = frame->timestamp;
   led_seen_data = true;
+
+  // Forward host rumble requests. Polling here (250Hz) bounds the latency to
+  // one input frame without an extra timer or cross-core wakeup; the common
+  // case is a single load and compare.
+  uint32_t rumble = rumble_request_get();
+  if (rumble != rumble_sent || (rumble != 0 && frame->timestamp - rumble_sent_us >= RUMBLE_REFRESH_US)) {
+    rumble_apply(d, rumble, frame->timestamp);
+  }
 
 #if IS_PICO_DEBUG
   static int count = 0;

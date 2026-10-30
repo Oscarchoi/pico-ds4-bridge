@@ -2,6 +2,7 @@
 #include <pico/cyw43_arch.h>
 #include <tusb.h>
 
+#include "comm.h"
 #include "debug.h"
 #include "dualshock4.h"
 
@@ -521,46 +522,39 @@ void tud_hid_set_report_cb(uint8_t instance,
   }
 #endif
 
-  // printf("tud_hid_set_report_cb: ID=%d, Type=%d, Size=%d\n", report_id,
-  // report_type, bufsize);
-  ds4_feature_output_report_t feature;
-  if (report_type == HID_REPORT_TYPE_OUTPUT) {
-    if (report_id == 0 && !is_ds4_initialized) {
-      memcpy(&feature, buffer, bufsize);
-    }
-    // printf("Feature Report:\n");
-    // printf("Report ID: %d\n", feature.reportID);
-    // printf("Enable Update Rumble: %d\n", feature.enableUpdateRumble);
-    // printf("Enable Update LED: %d\n", feature.enableUpdateLED);
-    // printf("Enable Update LED Blink: %d\n", feature.enableUpdateLEDBlink);
-    // printf("Enable Update Ext Data: %d\n", feature.enableUpdateExtData);
-    // printf("Enable Update Volume Left: %d\n", feature.enableUpdateVolLeft);
-    // printf("Enable Update Volume Right: %d\n", feature.enableUpdateVolRight);
-    // printf("Enable Update Volume Mic: %d\n", feature.enableUpdateVolMic);
-    // printf("Enable Update Volume Speaker: %d\n",
-    // feature.enableUpdateVolSpeaker); printf("Rumble: %d, %d\n",
-    // feature.rumbleLeft, feature.rumbleRight); printf("LED: %d, %d, %d\n",
-    // feature.ledRed, feature.ledGreen, feature.ledBlue); printf("LED Blink:
-    // %d, %d\n", feature.ledBlinkOn, feature.ledBlinkOff); printf("Volume: %d,
-    // %d, %d, %d\n", feature.volumeLeft, feature.volumeRight,
-    // feature.volumeMic,
-    //        feature.volumeSpeaker);
-    // printf("Ext Data: ");
-    // for (int i = 0; i < sizeof(feature.extData); i++) {
-    //   printf("%02X ", feature.extData[i]);
-    // }
-    // printf("\n");
-    // printf("Unknown: %d\n", feature.unknown0);
-    // printf("Unknown Audio: %d\n", feature.unknownAudio);
-    // printf("Padding: ");
-    // for (int i = 0; i < sizeof(feature.padding); i++) {
-    //   printf("%02X ", feature.padding[i]);
-    // }
-    // printf("\n");
-    // printf("[INFO] Received feature report with ID %d, size %d\n", report_id,
-    // bufsize);
+  if (report_type != HID_REPORT_TYPE_OUTPUT) {
+    return;
+  }
 
-    is_ds4_initialized = true;
+  // Output reports arrive two ways: over the interrupt OUT endpoint with
+  // report_id 0 and the ID still in buffer[0], or via SET_REPORT on the
+  // control endpoint with the ID already stripped by TinyUSB.
+  if (report_id == 0 && bufsize > 0) {
+    report_id = buffer[0];
+    buffer++;
+    bufsize--;
+  }
+  if (report_id != DS4_SET_FEATURE_STATE) {
+    return;
+  }
+
+  ds4_feature_output_report_t out = {.reportID = report_id};
+  uint16_t copy_len = min(bufsize, sizeof(out) - 1);
+  memcpy((uint8_t*)&out + 1, buffer, copy_len);
+  is_ds4_initialized = true;
+
+  if (out.enableUpdateRumble) {
+    // DS4: left motor is the strong (low frequency) one.
+    rumble_request_set(out.rumbleLeft, out.rumbleRight);
+#if IS_PICO_DEBUG
+    static uint8_t last_strong = 0, last_weak = 0;
+    if (out.rumbleLeft != last_strong || out.rumbleRight != last_weak) {
+      PICO_DEBUG("[USB] Rumble: strong=%u weak=%u\n", out.rumbleLeft,
+                 out.rumbleRight);
+      last_strong = out.rumbleLeft;
+      last_weak = out.rumbleRight;
+    }
+#endif
   }
 }
 
@@ -571,6 +565,7 @@ void tud_mount_cb(void) {
 
 void tud_umount_cb(void) {
   PICO_INFO("USB unmounted\n");
+  rumble_request_set(0, 0);
 }
 
 void tud_hid_report_complete_cb(uint8_t instance,
@@ -588,7 +583,10 @@ void tud_hid_report_failed_cb(uint8_t instance,
   report_in_flight = false;
 }
 
-void tud_suspend_cb(bool remote_wakeup_en) {}
+void tud_suspend_cb(bool remote_wakeup_en) {
+  // Don't leave the controller rumbling while the host is asleep.
+  rumble_request_set(0, 0);
+}
 
 void tud_resume_cb(void) {}
 
