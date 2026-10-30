@@ -108,7 +108,9 @@ typedef struct __attribute__((packed)) {
   uint32_t report_counter : 6;
   uint32_t left_trigger : 8;   // 8
   uint32_t right_trigger : 8;  // 9
-  uint16_t axis_timing;        // timing counter: 10-11
+  // Sensor timestamp in units of 16/3 us (~5.33us), wrapping at 16 bits.
+  // Hosts derive IMU sample times from it (e.g. Linux MSC_TIMESTAMP).
+  uint16_t sensor_timestamp;   // 10-11
 
   uint8_t temperature;  // 12
 
@@ -144,6 +146,7 @@ typedef struct __attribute__((packed)) {
 } ds4_report_t;
 
 _Static_assert(sizeof(ds4_report_t) == 63, "DS4 report size mismatch");
+_Static_assert(offsetof(ds4_report_t, sensor_timestamp) == 9, "sensor timestamp must be at 9-10");
 _Static_assert(offsetof(ds4_report_t, temperature) == 11, "temperature byte must be at 11");
 _Static_assert(offsetof(ds4_report_t, tpad_counter) == 33,
                "touch block must start at byte offset 33");
@@ -153,6 +156,8 @@ ds4_report_t default_ds4_report();
 
 uint8_t dpad_mask_to_hat(uint8_t mask);
 
-void convert_uni_to_ds4(const uni_gamepad_t* gamepad, uint8_t battery, ds4_report_t* ds4);
+uint16_t ds4_sensor_timestamp(uint32_t time_us);
+
+void convert_uni_to_ds4(const uni_gamepad_t* gamepad, uint8_t battery, uint32_t timestamp_us, ds4_report_t* ds4);
 
 #endif  // DUALSHOCK4_H_
