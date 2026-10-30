@@ -561,10 +561,18 @@ void tud_hid_set_report_cb(uint8_t instance,
 void tud_mount_cb(void) {
   PICO_INFO("USB mounted\n");
   is_usb_mounted = true;
+  // A bus reset (e.g. the host recovering the port after a long run or a
+  // resume) clears TinyUSB's HID state without completing or failing the
+  // IN transfer that was in flight, so neither callback below ever fires
+  // for it. Without this, report_in_flight would stay true after the host
+  // re-enumerates us and input would stall forever while the Bluetooth
+  // controller stays connected.
+  report_in_flight = false;
 }
 
 void tud_umount_cb(void) {
   PICO_INFO("USB unmounted\n");
+  report_in_flight = false;
   rumble_request_set(0, 0);
 }
 
