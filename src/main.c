@@ -112,7 +112,8 @@ void usb_thread_run() {
       // A frame kept from a failed send takes priority; otherwise pull the
       // latest complete frame published by the Bluetooth core.
       if (frame_pending || ds4_mailbox_read(&g_ds4_mailbox, &frame)) {
-        convert_uni_to_ds4(&frame.gamepad, frame.battery, &report);
+        convert_uni_to_ds4(&frame.gamepad, frame.battery, frame.timestamp,
+                           &report);
         if (tud_hid_report(0x01, &report, sizeof(ds4_report_t))) {
           frame_pending = false;
           report_in_flight = true;
@@ -128,8 +129,10 @@ void usb_thread_run() {
         // Reset the host to a neutral state if bluetooth updates stop.
         absolute_time_t now = get_absolute_time();
         int64_t elapsed_us = absolute_time_diff_us(last_reported, now);
+        ds4_report_t idle_report = zero_report;
+        idle_report.sensor_timestamp = ds4_sensor_timestamp(time_us_32());
         if (elapsed_us > BT_UPDATE_TIMEOUT_US &&
-            tud_hid_report(0x01, &zero_report, sizeof(ds4_report_t))) {
+            tud_hid_report(0x01, &idle_report, sizeof(ds4_report_t))) {
           report_in_flight = true;
           last_reported = get_absolute_time();
           is_connected = false;

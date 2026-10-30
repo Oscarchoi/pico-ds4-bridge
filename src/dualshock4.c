@@ -36,9 +36,17 @@ uint8_t dpad_mask_to_hat(uint8_t mask) {
   return k_dpad_to_hat[mask & 0x0F];
 }
 
+// Converts a time_us_32() value to DS4 sensor timestamp units (16/3 us).
+// 2^32 us maps to 3 * 2^28 units, a multiple of 2^16, so the 16-bit result
+// stays continuous across the 32-bit microsecond timer wrap.
+uint16_t __not_in_flash_func(ds4_sensor_timestamp)(uint32_t time_us) {
+  return (uint16_t)(((uint64_t)time_us * 3) / 16);
+}
+
 // Hot path: runs once per report (250Hz) on the USB core. Kept in RAM to
 // avoid XIP flash cache contention with the Bluetooth core.
-void __not_in_flash_func(convert_uni_to_ds4)(const uni_gamepad_t* gamepad, uint8_t battery, ds4_report_t* ds4) {
+void __not_in_flash_func(convert_uni_to_ds4)(const uni_gamepad_t* gamepad, uint8_t battery, uint32_t timestamp_us,
+                                             ds4_report_t* ds4) {
   if (ds4 == NULL || gamepad == NULL) {
     return;
   }
@@ -77,7 +85,10 @@ void __not_in_flash_func(convert_uni_to_ds4)(const uni_gamepad_t* gamepad, uint8
   ds4->left_trigger = (uint8_t)(gamepad->brake / 4);
   ds4->right_trigger = (uint8_t)(gamepad->throttle / 4);
 
-  // sensor data
+  // sensor data, stamped with the time the Bluetooth frame arrived. The
+  // host uses the timestamp deltas as the IMU sample interval, so they must
+  // follow the real frame rate (250Hz for a DS4, ~750Hz for a DualSense).
+  ds4->sensor_timestamp = ds4_sensor_timestamp(timestamp_us);
   ds4->gyro_x = (uint16_t)(gamepad->gyro[0]);
   ds4->gyro_y = (uint16_t)(gamepad->gyro[1]);
   ds4->gyro_z = (uint16_t)(gamepad->gyro[2]);
