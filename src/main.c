@@ -1,4 +1,5 @@
 #include <hardware/structs/bus_ctrl.h>
+#include <hardware/watchdog.h>
 #include <pico/cyw43_arch.h>
 #include <pico/multicore.h>
 #include <pico/stdlib.h>
@@ -23,6 +24,15 @@
 // wake the loop immediately via SEV, so this only caps how late the
 // disconnect-timeout / suspend checks can run.
 #define USB_LOOP_IDLE_TIMEOUT_US 1000
+
+// Watchdog. The USB loop feeds it, but only while the Bluetooth core's
+// heartbeat keeps advancing, so a hang on either core reboots the bridge.
+// The timeout leaves room for a flash erase (pairing keys), which stalls
+// both cores for up to a few hundred ms.
+#define WATCHDOG_TIMEOUT_MS 2000
+#define BT_HEARTBEAT_TIMEOUT_US 2000000
+// The heartbeat starts once Bluetooth initialization completes.
+#define BT_STARTUP_GRACE_US 10000000
 
 // btstack + bluepad32 callbacks nest deeper than the 2KB default core1
 // stack; give the Bluetooth core a dedicated 8KB stack.
@@ -68,6 +78,10 @@ void usb_thread_run() {
   ds4_report_t report;
   absolute_time_t last_reported = get_absolute_time();
 
+  uint32_t last_heartbeat = bt_heartbeat_get();
+  uint32_t last_heartbeat_us = time_us_32();
+  watchdog_enable(WATCHDOG_TIMEOUT_MS, true);
+
   // Stats based on time interval (디버그 모드에서만)
 #if IS_PICO_DEBUG
   absolute_time_t stat_start_time = get_absolute_time();
@@ -78,6 +92,21 @@ void usb_thread_run() {
 
   while (true) {
     tud_task();
+
+    // Polled rather than set from callbacks: TinyUSB reports neither a bus
+    // reset nor SET_CONFIGURATION(0) through tud_umount_cb().
+    usb_link_set_up(tud_mounted() && !tud_suspended());
+
+    uint32_t heartbeat = bt_heartbeat_get();
+    uint32_t now_us = time_us_32();
+    if (heartbeat != last_heartbeat) {
+      last_heartbeat = heartbeat;
+      last_heartbeat_us = now_us;
+    }
+    if (now_us - last_heartbeat_us <
+        (heartbeat ? BT_HEARTBEAT_TIMEOUT_US : BT_STARTUP_GRACE_US)) {
+      watchdog_update();
+    }
 
     if (tud_hid_ready() && !report_in_flight) {
       // A frame kept from a failed send takes priority; otherwise pull the
@@ -147,6 +176,9 @@ int main() {
   sleep_ms(250);
 
   PICO_INFO("RPI PICO 2W started.\n");
+  if (watchdog_enable_caused_reboot()) {
+    PICO_ERROR("Rebooted by watchdog: a core stopped responding.\n");
+  }
 
   // Prioritize the Bluetooth core on the bus fabric so HCI traffic is never
   // stalled by the USB core under contention.

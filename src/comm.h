@@ -88,4 +88,35 @@ static inline uint32_t rumble_request_get(void) {
 #define RUMBLE_STRONG(r) ((uint8_t)((r) >> 8))
 #define RUMBLE_WEAK(r) ((uint8_t)(r))
 
+/*
+ * Health signals between the cores.
+ *
+ * g_usb_link_up (USB core -> Bluetooth core): true while the host has the
+ * device configured and not suspended. The Bluetooth core drops the
+ * controller when the link stays down, so the user can tell from the
+ * controller that the host is gone.
+ *
+ * g_bt_heartbeat (Bluetooth core -> USB core): advanced by the Bluetooth
+ * run loop. The USB core feeds the watchdog only while it keeps moving, so
+ * a hang on either core reboots the bridge.
+ */
+extern _Atomic bool g_usb_link_up;
+extern _Atomic uint32_t g_bt_heartbeat;
+
+static inline void usb_link_set_up(bool up) {
+  atomic_store_explicit(&g_usb_link_up, up, memory_order_relaxed);
+}
+
+static inline bool usb_link_is_up(void) {
+  return atomic_load_explicit(&g_usb_link_up, memory_order_relaxed);
+}
+
+static inline void bt_heartbeat_beat(void) {
+  atomic_fetch_add_explicit(&g_bt_heartbeat, 1, memory_order_relaxed);
+}
+
+static inline uint32_t bt_heartbeat_get(void) {
+  return atomic_load_explicit(&g_bt_heartbeat, memory_order_relaxed);
+}
+
 #endif  // COMM_H_

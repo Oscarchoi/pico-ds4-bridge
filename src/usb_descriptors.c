@@ -568,6 +568,9 @@ void tud_mount_cb(void) {
   // re-enumerates us and input would stall forever while the Bluetooth
   // controller stays connected.
   report_in_flight = false;
+  // The USB loop keeps this current afterwards; setting it here covers
+  // the startup wait before that loop runs.
+  usb_link_set_up(true);
 }
 
 void tud_umount_cb(void) {
@@ -592,11 +595,14 @@ void tud_hid_report_failed_cb(uint8_t instance,
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {
+  PICO_INFO("USB suspended\n");
   // Don't leave the controller rumbling while the host is asleep.
   rumble_request_set(0, 0);
 }
 
-void tud_resume_cb(void) {}
+void tud_resume_cb(void) {
+  PICO_INFO("USB resumed\n");
+}
 
 void tud_hid_report_received_cb(uint8_t itf, uint8_t const* rpt, uint16_t len) {
 }

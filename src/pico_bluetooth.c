@@ -40,8 +40,54 @@ static btstack_timer_source_t led_timer;
 static uint32_t led_last_data_us;
 static bool led_seen_data = false;
 
+// USB host loss handling. When the USB link has been down (unconfigured or
+// suspended) for USB_HOST_LOST_US, connected controllers are dropped and new
+// ones rejected until the host is back. Otherwise the controller stays
+// connected with its lightbar on while the host has stopped listening, and
+// the user cannot tell anything is wrong.
+#define USB_HOST_LOST_US 3000000
+
+// 0.625ms baseband slots: 3200 = 2s.
+#define BT_LINK_SUPERVISION_TIMEOUT_SLOTS 3200
+
+static uint32_t usb_down_since_us;
+static bool usb_host_lost = false;
+
+// Runs from the LED timer, i.e. on the btstack run loop (core 1).
+static void usb_link_check(void) {
+  uint32_t now_us = time_us_32();
+
+  if (usb_link_is_up()) {
+    if (usb_host_lost)
+      PICO_INFO("USB host is back, accepting controllers again\n");
+    usb_down_since_us = now_us;
+    usb_host_lost = false;
+    return;
+  }
+
+  // Latch once lost so a 32-bit timer wrap can't briefly un-lose it.
+  if (!usb_host_lost) {
+    if (now_us - usb_down_since_us < USB_HOST_LOST_US)
+      return;
+    PICO_INFO("USB host lost, disconnecting controllers\n");
+    usb_host_lost = true;
+  }
+
+  for (int i = 0; i < CONFIG_BLUEPAD32_MAX_DEVICES; i++) {
+    uni_hid_device_t* d = uni_hid_device_get_instance_for_idx(i);
+    if (d != NULL && uni_bt_conn_is_connected(&d->conn))
+      uni_bt_disconnect_device_safe(i);
+  }
+}
+
 static void led_timer_handler(btstack_timer_source_t* ts) {
   static bool led_on = false;
+
+  // This timer runs for as long as the Bluetooth run loop is alive, so it
+  // also serves as the core's watchdog heartbeat.
+  bt_heartbeat_beat();
+  usb_link_check();
+
   bool streaming = led_seen_data &&
                    (time_us_32() - led_last_data_us) < LED_DATA_FRESH_US;
 
@@ -101,6 +147,13 @@ static void pico_bluetooth_on_init_complete(void) {
   uni_bt_del_keys_unsafe();
 #endif
 
+  // Shorten the link supervision timeout from btstack's 20s default. When
+  // the bridge dies without a clean disconnect (watchdog reboot, power
+  // loss), the controller only notices once this expires, and until then
+  // it looks connected. Applied to links where we are master, which
+  // bluepad32 requests for every connection.
+  gap_set_link_supervision_timeout(BT_LINK_SUPERVISION_TIMEOUT_SLOTS);
+
   // Start scanning and autoconnect to supported controllers.
   uni_bt_start_scanning_and_autoconnect_safe();
   led_blink_start();
@@ -157,7 +210,10 @@ static void pico_bluetooth_on_device_disconnected(uni_hid_device_t* d) {
 }
 
 static uni_error_t pico_bluetooth_on_device_ready(uni_hid_device_t* d) {
-  // You can reject the connection by returning an error.
+  if (usb_host_lost) {
+    PICO_INFO("Rejecting controller: USB host is not connected\n");
+    return UNI_ERROR_IGNORE_DEVICE;
+  }
   return UNI_ERROR_SUCCESS;
 }
 

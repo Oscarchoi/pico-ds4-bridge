@@ -17,6 +17,10 @@ This project enables your Raspberry Pi Pico 2 W to act as a bridge between DualS
 - **Low Latency**: Optimized for gaming with minimal input delay (250Hz update rate)
 - **Battery Status**: Forwards DS4 battery level information
 - **Rumble**: Forwards host rumble requests (DS4 output report) to the connected controller (verified with DualSense)
+- **Link Health**:
+  - Drops the controller (and refuses new connections) when the USB host has been gone for 3s, so the controller shows it is disconnected
+  - Watchdog reboots the bridge if either core stops responding
+  - 2s Bluetooth link supervision timeout, so the controller notices quickly when the bridge itself goes away
 - **Debug Support**: Optional debug output via UART
 
 ## Planned Features
